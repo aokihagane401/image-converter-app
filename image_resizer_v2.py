@@ -2,6 +2,7 @@ import os
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, colorchooser
 from PIL import Image, ImageOps, ImageFilter
+from tkinterdnd2 import DND_FILES, TkinterDnD
 
 APP_TITLE = "画像かんたん変換 v2"
 
@@ -31,7 +32,7 @@ class App:
         outer.pack(fill="both", expand=True)
 
         ttk.Label(outer, text="画像かんたん変換", font=("", 17, "bold")).pack(anchor="w")
-        ttk.Label(outer, text="画像を追加して用途を選ぶだけ。元画像は変更せず、選んだサイズで別ファイルを作ります。").pack(anchor="w", pady=(2, 12))
+        ttk.Label(outer, text="画像をドラッグ＆ドロップで追加して用途を選ぶだけ。元画像は変更せず、用途別フォルダに保存します。").pack(anchor="w", pady=(2, 12))
 
         file_frame = ttk.LabelFrame(outer, text="1. 変換する画像", padding=10)
         file_frame.pack(fill="both", expand=True)
@@ -42,6 +43,9 @@ class App:
         ttk.Button(btnrow, text="一覧をクリア", command=self.clear_files).pack(side="left")
         self.listbox = tk.Listbox(file_frame, height=7, selectmode=tk.EXTENDED)
         self.listbox.pack(fill="both", expand=True)
+        # 画像ファイルをリストへドラッグ＆ドロップできるようにする
+        self.listbox.drop_target_register(DND_FILES)
+        self.listbox.dnd_bind("<<Drop>>", self.drop_files)
 
         outrow = ttk.Frame(outer)
         outrow.pack(fill="x", pady=10)
@@ -93,6 +97,21 @@ class App:
             if path not in self.files and path.lower().endswith(SUPPORTED):
                 self.files.append(path)
                 self.listbox.insert(tk.END, path)
+
+    def drop_files(self, event):
+        try:
+            paths = self.root.tk.splitlist(event.data)
+        except Exception:
+            paths = [event.data]
+        added = 0
+        for path in paths:
+            path = path.strip()
+            if os.path.isfile(path) and path.lower().endswith(SUPPORTED) and path not in self.files:
+                self.files.append(path)
+                self.listbox.insert(tk.END, path)
+                added += 1
+        self.status.config(text=f"ドラッグ＆ドロップで {added} 個の画像を追加しました" if added else "追加できる画像がありませんでした")
+        return "break"
 
     def remove_selected(self):
         indices = list(self.listbox.curselection())
@@ -147,7 +166,7 @@ class App:
                     if w < 1 or h < 1 or w > 20000 or h > 20000:
                         raise ValueError
                 except ValueError:
-                    messagebox.showerror("サイズエラー", f"{p['name']} の幅・高さを正しく入力してください（1〜20000）。")
+                    messagebox.showerror("サイズエラー", f"{p['name']} の幅・高さを正しく入力してください（1$301C20000）。")
                     return
                 fmt = self.format_vars[i].get().upper()
                 selected_presets.append((p["name"], w, h, fmt))
@@ -178,9 +197,19 @@ class App:
                             save_options = {"quality": 95, "method": 6}
                         stem = os.path.splitext(os.path.basename(source))[0]
                         safe_name = name.split("（")[0].split("（")[0].replace(" ", "_")
-                        folder = self.output_dir.get() or os.path.dirname(source)
+                        # 保存先の中に「画像変換済み」フォルダを作り、用途別に整理して保存
+                        base_folder = self.output_dir.get() or os.path.dirname(source)
+                        output_root = os.path.join(base_folder, "画像変換済み")
+                        preset_folder_names = {
+                            "LANDR": "LANDR",
+                            "Spotify": "Spotify",
+                            "YouTubeショート": "YouTubeショート",
+                            "YouTube横動画": "YouTube横動画",
+                        }
+                        preset_folder = preset_folder_names.get(name.split("（")[0], safe_name)
+                        folder = os.path.join(output_root, preset_folder)
                         os.makedirs(folder, exist_ok=True)
-                        outpath = os.path.join(folder, f"{stem}_{safe_name}_{w}x{h}{ext}")
+                        outpath = os.path.join(folder, f"{stem}_{w}x{h}{ext}")
                         result.save(outpath, format=save_format, **save_options)
                         done += 1
             except Exception as e:
@@ -192,7 +221,7 @@ class App:
             messagebox.showinfo("変換完了", f"{done} 個の画像を保存しました。\n元画像は変更していません。")
 
 def main():
-    root = tk.Tk()
+    root = TkinterDnD.Tk()
     try:
         style = ttk.Style()
         if "vista" in style.theme_names():
